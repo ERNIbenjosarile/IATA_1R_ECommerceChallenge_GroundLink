@@ -1,0 +1,188 @@
+﻿@page "/file-upload"
+@using Microsoft.EntityFrameworkCore
+@using X_Hackathon.Business
+@using X_Hackathon.Domain
+@using X_Hackathon.External
+@using Microsoft.AspNetCore.Components.QuickGrid
+@using Azure.Storage.Blobs
+@inject DatabaseContext DbContext
+
+@rendermode InteractiveServer
+
+
+<label>
+        Upload up AirwayBills:
+        <InputFile OnChange="LoadAWBFiles" multiple />
+</label>
+<label>
+        Upload up PackingLists:
+        <InputFile OnChange="LoadPackingListFiles" multiple />
+</label>
+<label>
+        Upload up Commercial Invoices:
+        <InputFile OnChange="LoadCommercialInvoiceFiles" multiple />
+</label>
+<PageTitle>@aiResponseMessage</PageTitle>
+<QuickGrid Items="ProdItems.AsQueryable()">
+@*      <TemplateColumn Title="Actions">
+        <ColumnTemplate Context="p">
+            <a href="/productInfo/@p.ExternalReference">Details</a>
+        </ColumnTemplate>
+    </TemplateColumn>
+ *@ 
+   <PropertyColumn Property="@(p => p.ReferenceNumber ?? "N/A")" Title= "Reference Number" Sortable="true"  />
+    <PropertyColumn Property="@(p => p.Destination ?? "N/A")" Title= "Destination" Sortable="true" />
+    <PropertyColumn Property="@(p => p.ShippingInfo ?? "N/A")" Title= "ShippingInfo"  Sortable="true" />
+</QuickGrid>
+
+<p>
+    parsed info:
+    @aiResponseMessage
+</p>
+@code {
+    private string aiResponseMessage;
+    private AIClient aiclient = new AIClient();
+    private IList<X_Hackathon.Domain.Product> ProdItems = new List<X_Hackathon.Domain.Product>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        ProdItems.Clear();
+        ProdItems = DbContext.Products.ToList();
+        StateHasChanged();
+    }
+
+    private async void LoadAWBFiles(InputFileChangeEventArgs e)
+    {
+        BlobServiceClient client = new BlobServiceClient(Environment.GetEnvironmentVariable("storageBlobConnectionString"));
+        BlobContainerClient containerClient = client.GetBlobContainerClient("xfile");
+        if (containerClient == null)
+        {
+            containerClient = await client.CreateBlobContainerAsync("xfile");
+        }
+
+        var filelist = new List<string>();
+        var buffer = new byte[4096];
+        List<Tuple<Stream, string, Uri>> awbfiles = new List<Tuple<Stream, string, Uri>>();
+        ProductDocumentSerializer serializer = new ProductDocumentSerializer();
+        foreach(var file in e.GetMultipleFiles(e.FileCount))
+        {
+            string filename = Guid.NewGuid() + file.Name;
+            BlobClient blobClient = containerClient.GetBlobClient(filename);
+            await blobClient.UploadAsync(file.OpenReadStream(int.MaxValue), true);
+            awbfiles.Add(new Tuple<Stream,string, Uri>(file.OpenReadStream(int.MaxValue), filename,blobClient.Uri));
+            filelist.Add(filename);
+        }
+
+        AIClient aiClient = new AIClient();
+        aiResponseMessage = await aiClient.InterpretAirWayBillsAsync(awbfiles);
+        aiResponseMessage = aiResponseMessage.Replace("```json",string.Empty).Replace("```",string.Empty);
+        var AWBList = await serializer.SerializeAsync<AirwayBill>(aiResponseMessage);
+        int i = 0;
+        foreach(var awb in AWBList)
+        {
+            awb.FileUrl = awbfiles[i].Item3.AbsoluteUri;
+            DbContext.AirwayBills.Add(awb);
+            i++;
+        }
+        DbContext.SaveChanges();
+
+
+        ProductCalculator calc = new ProductCalculator(DbContext);
+        calc.Calculate();
+
+        ProdItems.Clear();
+        ProdItems = DbContext.Products.ToList();
+
+        StateHasChanged();
+    }
+
+    private async void LoadPackingListFiles(InputFileChangeEventArgs e)
+    {
+        BlobServiceClient client = new BlobServiceClient(Environment.GetEnvironmentVariable("storageBlobConnectionString"));
+        BlobContainerClient containerClient = client.GetBlobContainerClient("xfile");
+        if (containerClient == null)
+        {
+            containerClient = await client.CreateBlobContainerAsync("xfile");
+        }
+
+        var filelist = new List<string>();
+        var buffer = new byte[4096];
+        List<Tuple<Stream, string, Uri>> plfiles = new List<Tuple<Stream, string, Uri>>();
+        ProductDocumentSerializer serializer = new ProductDocumentSerializer();
+        foreach(var file in e.GetMultipleFiles(e.FileCount))
+        {
+            string filename = Guid.NewGuid() + file.Name;
+            BlobClient blobClient = containerClient.GetBlobClient(filename);
+            await blobClient.UploadAsync(file.OpenReadStream(int.MaxValue), true);
+            plfiles .Add(new Tuple<Stream,string, Uri>(file.OpenReadStream(int.MaxValue), filename,blobClient.Uri));
+            filelist.Add(filename);
+        }
+
+        AIClient aiClient = new AIClient();
+        aiResponseMessage = await aiClient.InterpretPacketListsAsync(plfiles);
+        aiResponseMessage = aiResponseMessage.Replace("```json",string.Empty).Replace("```",string.Empty);
+        var PackingLists = await serializer.SerializeAsync<PackingList>(aiResponseMessage);
+        int i = 0;
+        foreach(var pl in PackingLists)
+        {
+            pl.FileUrl = plfiles[i].Item3.AbsoluteUri;
+            DbContext.PackingLists.Add(pl);
+            i++;
+        }
+        DbContext.SaveChanges();
+
+        
+
+        ProductCalculator calc = new ProductCalculator(DbContext);
+        calc.Calculate();
+        
+        ProdItems.Clear();
+        ProdItems = DbContext.Products.ToList();
+
+        StateHasChanged();
+    }
+
+    private async void LoadCommercialInvoiceFiles(InputFileChangeEventArgs e)
+    {
+        BlobServiceClient client = new BlobServiceClient(Environment.GetEnvironmentVariable("storageBlobConnectionString"));
+        BlobContainerClient containerClient = client.GetBlobContainerClient("xfile");
+        if (containerClient == null)
+        {
+            containerClient = await client.CreateBlobContainerAsync("xfile");
+        }
+
+        var filelist = new List<string>();
+        var buffer = new byte[4096];
+        List<Tuple<Stream, string, Uri>> cifiles = new List<Tuple<Stream, string, Uri>>();
+        ProductDocumentSerializer serializer = new ProductDocumentSerializer();
+        foreach(var file in e.GetMultipleFiles(e.FileCount))
+        {
+            string filename = Guid.NewGuid() + file.Name;
+            BlobClient blobClient = containerClient.GetBlobClient(filename);
+            await blobClient.UploadAsync(file.OpenReadStream(int.MaxValue), true);
+            cifiles.Add(new Tuple<Stream,string, Uri>(file.OpenReadStream(int.MaxValue), filename,blobClient.Uri));
+            filelist.Add(filename);
+        }
+
+        AIClient aiClient = new AIClient();
+        aiResponseMessage = await aiClient.InterpretCommercialInvoiceAsync(cifiles);
+        aiResponseMessage = aiResponseMessage.Replace("```json",string.Empty).Replace("```",string.Empty);
+        var CIList = await serializer.SerializeAsync<AirwayBill>(aiResponseMessage);
+        int i = 0;
+        foreach(var ci in CIList)
+        {
+            ci.FileUrl = cifiles[i].Item3.AbsoluteUri;
+            DbContext.AirwayBills.Add(ci);
+            i++;
+        }
+        DbContext.SaveChanges();
+
+        ProductCalculator calc = new ProductCalculator(DbContext);
+        calc.Calculate();
+
+        ProdItems.Clear();
+        ProdItems = DbContext.Products.ToList();
+
+        StateHasChanged();
+    }
+}
