@@ -5,3 +5,5 @@
 /.vs
 /X_Hackathon/bin
 /X_Hackathon/.vs
+/X_Hackathon/obj
+/X_Hackathon/Properties/launchSettings.json
